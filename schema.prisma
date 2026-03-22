@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Asso {
+  id        Int        @id @default(autoincrement())
+  name      String     @db.VarChar(255)
+  campaigns Campaign[]
+  Location  Location[]
+  userTypeDefaults    AssoUserTypeDefault[]
+  vehicleTypeDefaults AssoVehicleTypeDefault[]
+
+  @@map("assos")
+}
+
+model Campaign {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(255)
+  start_date   DateTime
+  end_date     DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  associations Asso[]
+
+  @@map("campaigns")
+}
+
+enum UiOption {
+  form
+  tables
+}
+
+enum AgeClass {
+  under_18
+  adult_18_64
+  senior_65_plus
+}
+
+model Count {
+  id                    Int                   @id @default(autoincrement())
+  dt                    DateTime              @default(now())
+  counter_id            Int
+  user_type_id          Int
+  vehicle_type_id       Int
+  input_road            String?
+  output_road           String?
+  age_class             AgeClass?
+
+  user_type           String? // Deprecated, use user_type_id
+  vehicle_type        String? // Deprecated, use vehicle_type_id
+
+
+  location     Location    @relation(fields: [counter_id], references: [id])
+  userType     UserType    @relation(fields: [user_type_id], references: [id])
+  vehicleType  VehicleType @relation(fields: [vehicle_type_id], references: [id])
+
+  @@map("counts")
+}
+
+model Location {
+  id                    Int      @id @default(autoincrement())
+  lng                   Float
+  lat                   Float
+  title                 String
+  association_id        Int
+  description           String   @default("")
+  nom                   String   @default("")
+  comptage_directionnel Boolean  @default(false)
+  routes                Json     @default("{}")
+  history               Json     @default("{}")
+  parentId              Int?
+  ui_option             UiOption @default(form)
+
+  counts Count[]
+  userTypeDefaults    LocationUserTypeDefault[]
+  vehicleTypeDefaults LocationVehicleTypeDefault[]
+
+  association Asso @relation(fields: [association_id], references: [id])
+
+  @@map("locations")
+}
+
+model VehicleType {
+  id             Int      @id @default(autoincrement())
+  name           String   @unique
+  icon_class     String?
+  is_default     Boolean  @default(false)  // true = part of global defaults
+  sort_order     Int      @default(0)
+
+  counts              Count[]
+  assoDefaults        AssoVehicleTypeDefault[]
+  locationDefaults    LocationVehicleTypeDefault[]
+
+  @@map("vehicle_types")
+}
+
+model UserType {
+  id             Int      @id @default(autoincrement())
+  name           String   @unique
+  icon_class     String?
+  is_default     Boolean  @default(false)  // true = part of global defaults
+  sort_order     Int      @default(0)
+
+  counts              Count[]
+  assoDefaults        AssoUserTypeDefault[]
+  locationDefaults    LocationUserTypeDefault[]
+
+  @@map("user_types")
+}
+
+// Junction table for association's selected user types
+model AssoUserTypeDefault {
+  id             Int @id @default(autoincrement())
+  association_id Int
+  user_type_id   Int
+  is_enabled     Boolean @default(true)
+
+  association Asso     @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  userType    UserType @relation(fields: [user_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([association_id, user_type_id])
+  @@map("asso_user_type_defaults")
+}
+
+// Junction table for association's selected vehicle types
+model AssoVehicleTypeDefault {
+  id             Int @id @default(autoincrement())
+  association_id Int
+  vehicle_type_id Int
+  is_enabled     Boolean @default(true)
+
+  association Asso        @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  vehicleType VehicleType @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([association_id, vehicle_type_id])
+  @@map("asso_vehicle_type_defaults")
+}
+
+// Junction table for location's selected user types
+model LocationUserTypeDefault {
+  id             Int @id @default(autoincrement())
+  location_id    Int
+  user_type_id   Int
+  is_enabled     Boolean @default(true)
+
+  location Location @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  userType UserType @relation(fields: [user_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([location_id, user_type_id])
+  @@map("location_user_type_defaults")
+}
+
+// Junction table for location's selected vehicle types
+model LocationVehicleTypeDefault {
+  id              Int @id @default(autoincrement())
+  location_id     Int
+  vehicle_type_id Int
+  is_enabled      Boolean @default(true)
+
+  location    Location    @relation(fields: [location_id], references: [id], onDelete: Cascade)
+  vehicleType VehicleType @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade)
+
+  @@unique([location_id, vehicle_type_id])
+  @@map("location_vehicle_type_defaults")
+}
