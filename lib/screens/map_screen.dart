@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -8,6 +11,18 @@ import '../providers/providers.dart';
 import '../services/services.dart';
 import '../utils/utils.dart';
 import 'counting_screen.dart';
+
+/// Get platform-specific Google Maps Map ID
+String _getMapId() {
+  if (kIsWeb) {
+    return '9798ce98ce76aa462e8bb7ed'; // JavaScript Map ID
+  } else if (Platform.isAndroid) {
+    return '9798ce98ce76aa46a809f431'; // Android Map ID
+  } else if (Platform.isIOS) {
+    return '9798ce98ce76aa46b76093cd'; // iOS Map ID
+  }
+  return '';
+}
 
 /// Main screen with Google Maps showing counting locations as markers
 class MapScreen extends StatefulWidget {
@@ -21,6 +36,10 @@ class _MapScreenState extends State<MapScreen> {
   GoogleMapController? _mapController;
   Position? _currentPosition;
   final Set<Marker> _markers = {};
+
+  // For manual location selection
+  int? _selectedAssociationId;
+  Location? _selectedLocation;
 
   @override
   void initState() {
@@ -266,25 +285,35 @@ class _MapScreenState extends State<MapScreen> {
                     ],
                   ),
                 )
-              : GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: _currentPosition != null
-                        ? LatLng(
-                            _currentPosition!.latitude,
-                            _currentPosition!.longitude,
-                          )
-                        : LatLng(
-                            locationProvider.locations.first.lat,
-                            locationProvider.locations.first.lng,
-                          ),
-                    zoom: AppConstants.defaultMapZoom,
-                  ),
-                  markers: _markers,
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: true,
-                  onMapCreated: (controller) {
-                    _mapController = controller;
-                  },
+              : Column(
+                  children: [
+                    // Google Map
+                    Expanded(
+                      child: GoogleMap(
+                        cloudMapId: _getMapId(),
+                        initialCameraPosition: CameraPosition(
+                          target: _currentPosition != null
+                              ? LatLng(
+                                  _currentPosition!.latitude,
+                                  _currentPosition!.longitude,
+                                )
+                              : LatLng(
+                                  locationProvider.locations.first.lat,
+                                  locationProvider.locations.first.lng,
+                                ),
+                          zoom: AppConstants.defaultMapZoom,
+                        ),
+                        markers: _markers,
+                        myLocationEnabled: true,
+                        myLocationButtonEnabled: true,
+                        onMapCreated: (controller) {
+                          _mapController = controller;
+                        },
+                      ),
+                    ),
+                    // Manual location selector
+                    _buildLocationSelector(locationProvider),
+                  ],
                 ),
           // Sync status bar at bottom
           bottomNavigationBar:
@@ -325,6 +354,130 @@ class _MapScreenState extends State<MapScreen> {
         );
       },
     );
+  }
+
+  /// Build manual location selector widget
+  Widget _buildLocationSelector(LocationProvider locationProvider) {
+    // Get unique associations from locations
+    final associations = _getUniqueAssociations(locationProvider.locations);
+
+    // Get locations for selected association
+    final filteredLocations = _selectedAssociationId != null
+        ? locationProvider.getLocationsByAssociation(_selectedAssociationId!)
+        : <Location>[];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Select a location',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 12),
+
+          // Association dropdown
+          DropdownButtonFormField<int>(
+            decoration: const InputDecoration(
+              labelText: 'Association',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            initialValue: _selectedAssociationId,
+            items: associations.map((assoc) {
+              return DropdownMenuItem<int>(
+                value: assoc['id'],
+                child: Text(assoc['name']),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedAssociationId = value;
+                _selectedLocation =
+                    null; // Reset location when association changes
+              });
+            },
+          ),
+
+          const SizedBox(height: 12),
+
+          // Location dropdown
+          DropdownButtonFormField<int>(
+            decoration: const InputDecoration(
+              labelText: 'Location',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            initialValue: _selectedLocation?.id,
+            items: filteredLocations.map((location) {
+              return DropdownMenuItem<int>(
+                value: location.id,
+                child: Text(location.title),
+              );
+            }).toList(),
+            onChanged: _selectedAssociationId == null
+                ? null
+                : (value) {
+                    final location = filteredLocations.firstWhere(
+                      (loc) => loc.id == value,
+                    );
+                    setState(() {
+                      _selectedLocation = location;
+                    });
+                  },
+          ),
+
+          const SizedBox(height: 12),
+
+          // Go button
+          ElevatedButton.icon(
+            onPressed: _selectedLocation == null
+                ? null
+                : () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            CountingScreen(location: _selectedLocation!),
+                      ),
+                    );
+                  },
+            icon: const Icon(Icons.arrow_forward),
+            label: const Text('Start Counting'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Get unique associations from locations list
+  List<Map<String, dynamic>> _getUniqueAssociations(List<Location> locations) {
+    final associationMap = <int, String>{};
+
+    for (final location in locations) {
+      // Use association ID as key and title as initial name
+      // (In a real app, you'd fetch the association name from the API)
+      if (!associationMap.containsKey(location.associationId)) {
+        associationMap[location.associationId] =
+            'Association ${location.associationId}';
+      }
+    }
+
+    return associationMap.entries
+        .map((entry) => {'id': entry.key, 'name': entry.value})
+        .toList()
+      ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
   }
 
   @override

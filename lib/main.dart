@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'providers/providers.dart';
 import 'screens/map_screen.dart';
 import 'services/services.dart';
+import 'utils/google_maps_initializer.dart';
 import 'utils/utils.dart';
 
 void main() async {
@@ -13,6 +15,14 @@ void main() async {
 
   // Load environment variables
   await dotenv.load(fileName: '.env');
+
+  // Initialize Google Maps for web with API key from environment
+  if (kIsWeb) {
+    final apiKey = dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
+    if (apiKey.isNotEmpty) {
+      loadGoogleMapsScript(apiKey);
+    }
+  }
 
   runApp(const CiclableApp());
 }
@@ -38,7 +48,7 @@ class CiclableApp extends StatelessWidget {
 
         // Sync Service and Provider
         ProxyProvider2<ApiService, DatabaseService, SyncService>(
-          update: (_, apiService, databaseService, __) => SyncService(
+          update: (_, apiService, databaseService, _) => SyncService(
             apiService: apiService,
             databaseService: databaseService,
           ),

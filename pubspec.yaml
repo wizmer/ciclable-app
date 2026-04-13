@@ -33,6 +33,7 @@ dependencies:
 
   # UI
   cupertino_icons: ^1.0.8
+  font_awesome_flutter: ^10.7.0
   
   # Google Maps
   google_maps_flutter: ^2.9.0
@@ -41,8 +42,9 @@ dependencies:
   # State Management
   provider: ^6.1.2
   
-  # Local Database
-  sqflite: ^2.3.3+1
+  # Local Database (cross-platform)
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
   path: ^1.9.0
   
   # Network & API

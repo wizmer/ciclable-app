@@ -1,0 +1,25 @@
+Ciclable is a mobile application designed for counting cyclists and other road users at specific locations.
+
+The app supports both online and offline modes with automatic data synchronization when connectivity is restored.
+
+Key Features:
+• Interactive Google Maps interface showing counting locations
+• Offline-first architecture with local data storage
+• Two counting modes: directed (with road tracking) and non-directed
+• Automatic synchronization of offline counts when online
+• Support for multiple vehicle types (bikes, e-bikes, scooters, cargo bikes)
+• Support for multiple user types (commuters, students, tourists, etc.)
+• Undo functionality for accidental counts
+• Real-time location tracking
+
+The app is designed for volunteer organizations and municipalities conducting traffic studies to understand cyclist movement patterns and improve cycling infrastructure.
+
+How to Use:
+1. Open the app and view the map with counting location markers
+2. Tap a marker or select from the location dropdown to start counting
+3. Tap the appropriate cell in the counting table for each cyclist/user type
+4. For directed counting, select the input and output roads
+5. Counts are saved locally and sync automatically when online
+6. Use the undo toast notification if you make a mistake
+
+The app works entirely offline and will sync data when you have an internet connection.

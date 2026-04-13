@@ -1,0 +1,8 @@
+Initial release of Ciclable cyclist counting app.
+
+Features:
+- Interactive map with counting locations
+- Offline counting with automatic sync
+- Directed and non-directed counting modes
+- Support for multiple vehicle and user types
+- Undo functionality

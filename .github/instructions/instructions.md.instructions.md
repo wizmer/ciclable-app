@@ -280,7 +280,7 @@ dev_dependencies:
 Create `.env` file (not committed):
 ```
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
-API_BASE_URL=https://api.ciclable.com
+API_BASE_URL=https://api.ciclable.org
 GOOGLE_MAPS_API_KEY=your_key_here
 ```
 

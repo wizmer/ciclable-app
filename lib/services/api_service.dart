@@ -25,11 +25,14 @@ class ApiService {
   /// This is a placeholder - you may need to fetch from associations instead
   Future<List<Location>> getLocations() async {
     try {
+      debugPrint(
+        "ApiService: Fetching locations from $_baseUrl/api/admin/locations",
+      );
       final response = await _client.get(
         Uri.parse('$_baseUrl/api/admin/locations'),
         headers: {'Content-Type': 'application/json'},
       );
-      print("response ${response}");
+      debugPrint("ApiService: Response: $response");
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body) as List;

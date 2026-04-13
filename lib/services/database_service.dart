@@ -1,109 +1,39 @@
 import 'dart:convert';
 
-import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:flutter/foundation.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/models.dart';
 
-/// Service for handling local SQLite database operations
+/// Service for handling local Hive database operations (cross-platform)
 /// Stores counts offline for later synchronization
+/// Works on mobile, web, and desktop platforms
 class DatabaseService {
-  static Database? _database;
-  static const String _dbName = 'ciclable.db';
-  static const int _dbVersion = 1;
+  static bool _initialized = false;
 
-  // Table names
-  static const String _countsTable = 'counts';
-  static const String _locationsTable = 'locations';
-  static const String _userTypesTable = 'user_types';
-  static const String _vehicleTypesTable = 'vehicle_types';
+  // Box names
+  static const String _countsBox = 'counts';
+  static const String _locationsBox = 'locations';
+  static const String _userTypesBox = 'user_types';
+  static const String _vehicleTypesBox = 'vehicle_types';
 
-  /// Get database instance (singleton pattern)
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
-  }
+  /// Initialize Hive database (call once at app startup)
+  Future<void> get database async {
+    if (_initialized) return;
 
-  /// Initialize database
-  Future<Database> _initDatabase() async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
+    debugPrint('DatabaseService: Initializing Hive...');
+    await Hive.initFlutter();
 
-    return await openDatabase(
-      path,
-      version: _dbVersion,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-    );
-  }
+    // Open all boxes
+    await Future.wait([
+      Hive.openBox<Map>(_countsBox),
+      Hive.openBox<Map>(_locationsBox),
+      Hive.openBox<Map>(_userTypesBox),
+      Hive.openBox<Map>(_vehicleTypesBox),
+    ]);
 
-  /// Create database tables
-  Future<void> _onCreate(Database db, int version) async {
-    // Counts table
-    await db.execute('''
-      CREATE TABLE $_countsTable (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dt TEXT NOT NULL,
-        counter_id INTEGER NOT NULL,
-        user_type_id INTEGER NOT NULL,
-        vehicle_type_id INTEGER NOT NULL,
-        input_road TEXT,
-        output_road TEXT,
-        synced INTEGER NOT NULL DEFAULT 0
-      )
-    ''');
-
-    // Locations table (cached from API)
-    await db.execute('''
-      CREATE TABLE $_locationsTable (
-        id INTEGER PRIMARY KEY,
-        lng REAL NOT NULL,
-        lat REAL NOT NULL,
-        title TEXT NOT NULL,
-        association_id INTEGER NOT NULL,
-        description TEXT,
-        nom TEXT,
-        comptage_directionnel INTEGER NOT NULL DEFAULT 0,
-        routes TEXT,
-        history TEXT,
-        parent_id INTEGER,
-        ui_option TEXT
-      )
-    ''');
-
-    // User types table (cached from API)
-    await db.execute('''
-      CREATE TABLE $_userTypesTable (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        icon_class TEXT,
-        is_default INTEGER NOT NULL DEFAULT 0,
-        sort_order INTEGER NOT NULL DEFAULT 0
-      )
-    ''');
-
-    // Vehicle types table (cached from API)
-    await db.execute('''
-      CREATE TABLE $_vehicleTypesTable (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        icon_class TEXT,
-        is_default INTEGER NOT NULL DEFAULT 0,
-        sort_order INTEGER NOT NULL DEFAULT 0
-      )
-    ''');
-
-    // Create indexes for better query performance
-    await db.execute('CREATE INDEX idx_counts_synced ON $_countsTable(synced)');
-    await db.execute(
-      'CREATE INDEX idx_counts_counter_id ON $_countsTable(counter_id)',
-    );
-  }
-
-  /// Handle database upgrades
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle future schema migrations here
+    _initialized = true;
+    debugPrint('DatabaseService: Hive initialized successfully');
   }
 
   // ============================================================
@@ -112,64 +42,93 @@ class DatabaseService {
 
   /// Insert a new count
   Future<int> insertCount(Count count) async {
-    final db = await database;
-    return await db.insert(_countsTable, _countToMap(count));
+    final box = Hive.box<Map>(_countsBox);
+
+    // Generate auto-increment ID
+    final id =
+        count.id ??
+        (box.isEmpty
+            ? 1
+            : box.keys.cast<int>().reduce((a, b) => a > b ? a : b) + 1);
+
+    final countWithId = Count.fromJson({...count.toJson(), 'id': id});
+
+    await box.put(id, _countToMap(countWithId));
+    debugPrint('DatabaseService: Inserted count with ID: $id');
+    return id;
   }
 
   /// Get all unsynced counts
   Future<List<Count>> getUnsyncedCounts() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      _countsTable,
-      where: 'synced = ?',
-      whereArgs: [0],
-      orderBy: 'dt ASC',
-    );
+    final box = Hive.box<Map>(_countsBox);
 
-    return maps.map((map) => _countFromMap(map)).toList();
+    final unsyncedCounts = <Count>[];
+    for (var key in box.keys) {
+      final map = box.get(key) as Map;
+      if (map['synced'] == false || map['synced'] == 0) {
+        unsyncedCounts.add(_countFromMap(Map<String, dynamic>.from(map)));
+      }
+    }
+
+    // Sort by datetime
+    unsyncedCounts.sort((a, b) => a.dt.compareTo(b.dt));
+    debugPrint(
+      'DatabaseService: Found ${unsyncedCounts.length} unsynced counts',
+    );
+    return unsyncedCounts;
   }
 
   /// Mark a count as synced
   Future<void> markCountSynced(int localId, int? serverId) async {
-    final db = await database;
-    await db.update(
-      _countsTable,
-      {'synced': 1, if (serverId != null) 'id': serverId},
-      where: 'id = ?',
-      whereArgs: [localId],
-    );
+    final box = Hive.box<Map>(_countsBox);
+
+    if (box.containsKey(localId)) {
+      final map = Map<String, dynamic>.from(box.get(localId) as Map);
+      map['synced'] = true;
+      if (serverId != null) {
+        map['server_id'] = serverId; // Store server ID separately
+      }
+      await box.put(localId, map);
+      debugPrint(
+        'DatabaseService: Marked count $localId as synced (server ID: $serverId)',
+      );
+    }
   }
 
   /// Delete a count by local ID
   Future<void> deleteCount(int localId) async {
-    final db = await database;
-    await db.delete(_countsTable, where: 'id = ?', whereArgs: [localId]);
+    final box = Hive.box<Map>(_countsBox);
+    await box.delete(localId);
+    debugPrint('DatabaseService: Deleted count with ID: $localId');
   }
 
   /// Get counts for a specific location
   Future<List<Count>> getCountsByLocation(int counterId) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      _countsTable,
-      where: 'counter_id = ?',
-      whereArgs: [counterId],
-      orderBy: 'dt DESC',
-    );
+    final box = Hive.box<Map>(_countsBox);
 
-    return maps.map((map) => _countFromMap(map)).toList();
+    final counts = <Count>[];
+    for (var key in box.keys) {
+      final map = Map<String, dynamic>.from(box.get(key) as Map);
+      if (map['counter_id'] == counterId) {
+        counts.add(_countFromMap(map));
+      }
+    }
+
+    // Sort by datetime descending
+    counts.sort((a, b) => b.dt.compareTo(a.dt));
+    return counts;
   }
 
   /// Get the most recent count (for undo functionality)
   Future<Count?> getLastCount() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      _countsTable,
-      orderBy: 'id DESC',
-      limit: 1,
-    );
+    final box = Hive.box<Map>(_countsBox);
 
-    if (maps.isEmpty) return null;
-    return _countFromMap(maps.first);
+    if (box.isEmpty) return null;
+
+    // Get the highest ID (most recent)
+    final lastKey = box.keys.cast<int>().reduce((a, b) => a > b ? a : b);
+    final map = Map<String, dynamic>.from(box.get(lastKey) as Map);
+    return _countFromMap(map);
   }
 
   // ============================================================
@@ -178,25 +137,30 @@ class DatabaseService {
 
   /// Cache locations from API
   Future<void> cacheLocations(List<Location> locations) async {
-    final db = await database;
-    final batch = db.batch();
+    final box = Hive.box<Map>(_locationsBox);
 
     // Clear existing cache
-    batch.delete(_locationsTable);
+    await box.clear();
 
     // Insert new data
     for (final location in locations) {
-      batch.insert(_locationsTable, _locationToMap(location));
+      await box.put(location.id, _locationToMap(location));
     }
-
-    await batch.commit(noResult: true);
+    debugPrint('DatabaseService: Cached ${locations.length} locations');
   }
 
   /// Get all cached locations
   Future<List<Location>> getCachedLocations() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(_locationsTable);
-    return maps.map((map) => _locationFromMap(map)).toList();
+    final box = Hive.box<Map>(_locationsBox);
+
+    final locations = box.values
+        .map((map) => _locationFromMap(Map<String, dynamic>.from(map)))
+        .toList();
+
+    debugPrint(
+      'DatabaseService: Retrieved ${locations.length} cached locations',
+    );
+    return locations;
   }
 
   // ============================================================
@@ -205,25 +169,31 @@ class DatabaseService {
 
   /// Cache user types from API
   Future<void> cacheUserTypes(List<UserType> userTypes) async {
-    final db = await database;
-    final batch = db.batch();
+    final box = Hive.box<Map>(_userTypesBox);
 
-    batch.delete(_userTypesTable);
+    await box.clear();
     for (final userType in userTypes) {
-      batch.insert(_userTypesTable, _userTypeToMap(userType));
+      await box.put(userType.id, _userTypeToMap(userType));
     }
-
-    await batch.commit(noResult: true);
+    debugPrint('DatabaseService: Cached ${userTypes.length} user types');
   }
 
   /// Get all cached user types
   Future<List<UserType>> getCachedUserTypes() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      _userTypesTable,
-      orderBy: 'is_default DESC, sort_order ASC, name ASC',
-    );
-    return maps.map((map) => _userTypeFromMap(map)).toList();
+    final box = Hive.box<Map>(_userTypesBox);
+
+    final userTypes = box.values
+        .map((map) => _userTypeFromMap(Map<String, dynamic>.from(map)))
+        .toList();
+
+    // Sort by is_default DESC, sort_order ASC, name ASC
+    userTypes.sort((a, b) {
+      if (a.isDefault != b.isDefault) return b.isDefault ? 1 : -1;
+      if (a.sortOrder != b.sortOrder) return a.sortOrder.compareTo(b.sortOrder);
+      return a.name.compareTo(b.name);
+    });
+
+    return userTypes;
   }
 
   // ============================================================
@@ -232,25 +202,31 @@ class DatabaseService {
 
   /// Cache vehicle types from API
   Future<void> cacheVehicleTypes(List<VehicleType> vehicleTypes) async {
-    final db = await database;
-    final batch = db.batch();
+    final box = Hive.box<Map>(_vehicleTypesBox);
 
-    batch.delete(_vehicleTypesTable);
+    await box.clear();
     for (final vehicleType in vehicleTypes) {
-      batch.insert(_vehicleTypesTable, _vehicleTypeToMap(vehicleType));
+      await box.put(vehicleType.id, _vehicleTypeToMap(vehicleType));
     }
-
-    await batch.commit(noResult: true);
+    debugPrint('DatabaseService: Cached ${vehicleTypes.length} vehicle types');
   }
 
   /// Get all cached vehicle types
   Future<List<VehicleType>> getCachedVehicleTypes() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      _vehicleTypesTable,
-      orderBy: 'is_default DESC, sort_order ASC, name ASC',
-    );
-    return maps.map((map) => _vehicleTypeFromMap(map)).toList();
+    final box = Hive.box<Map>(_vehicleTypesBox);
+
+    final vehicleTypes = box.values
+        .map((map) => _vehicleTypeFromMap(Map<String, dynamic>.from(map)))
+        .toList();
+
+    // Sort by is_default DESC, sort_order ASC, name ASC
+    vehicleTypes.sort((a, b) {
+      if (a.isDefault != b.isDefault) return b.isDefault ? 1 : -1;
+      if (a.sortOrder != b.sortOrder) return a.sortOrder.compareTo(b.sortOrder);
+      return a.name.compareTo(b.name);
+    });
+
+    return vehicleTypes;
   }
 
   // ============================================================
@@ -266,7 +242,7 @@ class DatabaseService {
       'vehicle_type_id': count.vehicleTypeId,
       'input_road': count.inputRoad,
       'output_road': count.outputRoad,
-      'synced': count.synced ? 1 : 0,
+      'synced': count.synced,
     };
   }
 
@@ -279,7 +255,7 @@ class DatabaseService {
       'vehicle_type_id': map['vehicle_type_id'] as int,
       'input_road': map['input_road'] as String?,
       'output_road': map['output_road'] as String?,
-      'synced': (map['synced'] as int) == 1,
+      'synced': map['synced'] == true || map['synced'] == 1,
     });
   }
 
@@ -292,7 +268,7 @@ class DatabaseService {
       'association_id': location.associationId,
       'description': location.description,
       'nom': location.nom,
-      'comptage_directionnel': location.comptageDirectionnel ? 1 : 0,
+      'comptage_directionnel': location.comptageDirectionnel,
       'routes': jsonEncode(location.routes),
       'history': jsonEncode(location.history),
       'parent_id': location.parentId,
@@ -309,7 +285,9 @@ class DatabaseService {
       'association_id': map['association_id'] as int,
       'description': map['description'] as String?,
       'nom': map['nom'] as String?,
-      'comptage_directionnel': (map['comptage_directionnel'] as int) == 1,
+      'comptage_directionnel':
+          map['comptage_directionnel'] == true ||
+          map['comptage_directionnel'] == 1,
       'routes': map['routes'] as String,
       'history': map['history'] as String,
       'parent_id': map['parent_id'] as int?,
@@ -322,7 +300,7 @@ class DatabaseService {
       'id': userType.id,
       'name': userType.name,
       'icon_class': userType.iconClass,
-      'is_default': userType.isDefault ? 1 : 0,
+      'is_default': userType.isDefault,
       'sort_order': userType.sortOrder,
     };
   }
@@ -332,7 +310,7 @@ class DatabaseService {
       'id': map['id'] as int,
       'name': map['name'] as String,
       'icon_class': map['icon_class'] as String?,
-      'is_default': (map['is_default'] as int) == 1,
+      'is_default': map['is_default'] == true || map['is_default'] == 1,
       'sort_order': map['sort_order'] as int,
     });
   }
@@ -342,7 +320,7 @@ class DatabaseService {
       'id': vehicleType.id,
       'name': vehicleType.name,
       'icon_class': vehicleType.iconClass,
-      'is_default': vehicleType.isDefault ? 1 : 0,
+      'is_default': vehicleType.isDefault,
       'sort_order': vehicleType.sortOrder,
     };
   }
@@ -352,15 +330,17 @@ class DatabaseService {
       'id': map['id'] as int,
       'name': map['name'] as String,
       'icon_class': map['icon_class'] as String?,
-      'is_default': (map['is_default'] as int) == 1,
+      'is_default': map['is_default'] == true || map['is_default'] == 1,
       'sort_order': map['sort_order'] as int,
     });
   }
 
-  /// Close the database
+  /// Close database (cleanup)
   Future<void> close() async {
-    final db = await database;
-    await db.close();
-    _database = null;
+    if (_initialized) {
+      await Hive.close();
+      _initialized = false;
+      debugPrint('DatabaseService: Hive closed');
+    }
   }
 }

@@ -1,0 +1,13 @@
+# Android Signing Configuration
+# Copy this file to key.properties and fill in your actual values
+# NEVER commit the actual key.properties file to version control!
+
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=ciclable-key
+storeFile=/path/to/your/ciclable-release-key.jks
+
+# To generate a keystore, run:
+# keytool -genkey -v -keystore ~/ciclable-release-key.jks \
+#   -keyalg RSA -keysize 2048 -validity 10000 \
+#   -alias ciclable-key
