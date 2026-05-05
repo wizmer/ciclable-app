@@ -9,8 +9,8 @@ AuthorEmail: contact@ciclable.org
 AuthorWebSite: https://ciclable.org
 
 WebSite: https://ciclable.org
-SourceCode: https://github.com/yourusername/ciclable_app
-IssueTracker: https://github.com/yourusername/ciclable_app/issues
+SourceCode: https://github.com/wizmer/ciclable-app
+IssueTracker: https://github.com/wizmer/ciclable-app/issues
 
 Summary: Cyclist traffic counting application
 Description: |-
@@ -33,7 +33,7 @@ Description: |-
   infrastructure.
 
 RepoType: git
-Repo: https://github.com/yourusername/ciclable_app
+Repo: https://github.com/wizmer/ciclable-app
 
 Builds:
   - versionName: '1.0.0'
