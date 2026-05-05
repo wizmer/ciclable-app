@@ -66,7 +66,7 @@ class _CountingScreenState extends State<CountingScreen> {
       );
 
       if (success) {
-        _showUndoToast();
+        // Banner will show automatically via CountProvider.lastCount
         // Refresh pending count (will be 0 if synced, >0 if offline)
         await syncProvider.updatePendingCount();
       }
@@ -78,42 +78,172 @@ class _CountingScreenState extends State<CountingScreen> {
       );
 
       if (success) {
-        _showUndoToast();
+        // Banner will show automatically via CountProvider.lastCount
         // Refresh pending count (will be 0 if synced, >0 if offline)
         await syncProvider.updatePendingCount();
       }
     }
   }
 
-  /// Show undo toast after count registration
-  void _showUndoToast() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text(AppConstants.successCountRegistered),
-        duration: AppConstants.undoToastDuration,
-        action: SnackBarAction(
-          label: 'Undo',
-          onPressed: () async {
-            final countProvider = context.read<CountProvider>();
-            final syncProvider = context.read<SyncProvider>();
+  /// Show undo confirmation modal
+  Future<void> _showUndoConfirmation() async {
+    final countProvider = context.read<CountProvider>();
+    final lastCount = countProvider.lastCount;
 
-            final success = await countProvider.undoLastCount();
-            if (success) {
-              // Refresh pending count after undo
-              await syncProvider.updatePendingCount();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(AppConstants.successCountUndone),
-                    duration: Duration(seconds: 2),
+    if (lastCount == null) return;
+
+    // Find the user type and vehicle type names
+    final userType = countProvider.userTypes.firstWhere(
+      (type) => type.id == lastCount.userTypeId,
+      orElse: () => const UserType(id: 0, name: 'Unknown'),
+    );
+    final vehicleType = countProvider.vehicleTypes.firstWhere(
+      (type) => type.id == lastCount.vehicleTypeId,
+      orElse: () => const VehicleType(id: 0, name: 'Unknown'),
+    );
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Undo Last Count?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This will undo the following count:',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppTheme.primaryColor.withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      if (vehicleType.iconClass != null)
+                        Text(
+                          vehicleType.iconClass!,
+                          style: const TextStyle(fontSize: 24),
+                        ),
+                      if (vehicleType.iconClass != null)
+                        const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              vehicleType.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              userType.name,
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                );
-              }
-            }
-          },
+                  if (lastCount.inputRoad != null ||
+                      lastCount.outputRoad != null) ...[
+                    const SizedBox(height: 8),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.alt_route, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${lastCount.inputRoad ?? "?"} → ${lastCount.outputRoad ?? "?"}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        lastCount.synced ? Icons.cloud_done : Icons.cloud_off,
+                        size: 14,
+                        color: lastCount.synced
+                            ? AppTheme.onlineColor
+                            : AppTheme.warningColor,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        lastCount.synced
+                            ? 'Synced to server'
+                            : 'Not yet synced',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.errorColor,
+            ),
+            child: const Text('Undo Count'),
+          ),
+        ],
       ),
     );
+
+    if (confirmed == true && mounted) {
+      final syncProvider = context.read<SyncProvider>();
+      final success = await countProvider.undoLastCount();
+
+      if (success) {
+        await syncProvider.updatePendingCount();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(AppConstants.successCountUndone),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to undo count'),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -222,6 +352,35 @@ class _CountingScreenState extends State<CountingScreen> {
                   onCountTap: _onCountTap,
                 ),
               ),
+
+              // Undo button (shows when there's a last count to undo)
+              if (countProvider.lastCount != null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceColor,
+                    border: Border(
+                      top: BorderSide(color: Colors.grey.shade300),
+                    ),
+                  ),
+                  child: ElevatedButton.icon(
+                    onPressed: _showUndoConfirmation,
+                    icon: const Icon(Icons.undo, size: 18),
+                    label: const Text('Undo Last Count'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
 
               // Sync status footer
               Consumer<SyncProvider>(
