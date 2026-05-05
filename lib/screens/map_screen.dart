@@ -41,10 +41,32 @@ class _MapScreenState extends State<MapScreen> {
   int? _selectedAssociationId;
   Location? _selectedLocation;
 
+  // Association data from API
+  Map<int, String> _associationNames = {};
+
   @override
   void initState() {
     super.initState();
     _getCurrentLocation();
+    _loadAssociations();
+  }
+
+  /// Load associations from API
+  Future<void> _loadAssociations() async {
+    try {
+      final apiService = context.read<ApiService>();
+      final associations = await apiService.getAssociations();
+
+      setState(() {
+        _associationNames = {
+          for (var assoc in associations) assoc.id: assoc.name,
+        };
+      });
+
+      debugPrint('MapScreen: Loaded ${associations.length} associations');
+    } catch (e) {
+      debugPrint('MapScreen: Error loading associations: $e');
+    }
   }
 
   /// Get current user location
@@ -466,18 +488,29 @@ class _MapScreenState extends State<MapScreen> {
     final associationMap = <int, String>{};
 
     for (final location in locations) {
-      // Use association ID as key and title as initial name
-      // (In a real app, you'd fetch the association name from the API)
       if (!associationMap.containsKey(location.associationId)) {
+        // Use real association name from API if available, otherwise fallback to ID
         associationMap[location.associationId] =
+            _associationNames[location.associationId] ??
             'Association ${location.associationId}';
       }
     }
 
-    return associationMap.entries
-        .map((entry) => {'id': entry.key, 'name': entry.value})
-        .toList()
-      ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+    final associations =
+        associationMap.entries
+            .map((entry) => {'id': entry.key, 'name': entry.value})
+            .toList()
+          ..sort(
+            (a, b) => (a['name'] as String).compareTo(b['name'] as String),
+          );
+
+    // Debug log: list all association names
+    debugPrint('=== Associations (${associations.length}) ===');
+    for (final assoc in associations) {
+      debugPrint('  - ${assoc['name']} (ID: ${assoc['id']})');
+    }
+
+    return associations;
   }
 
   @override

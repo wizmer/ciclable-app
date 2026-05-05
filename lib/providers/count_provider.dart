@@ -41,55 +41,107 @@ class CountProvider with ChangeNotifier {
   String? get error => _error;
 
   /// Initialize counting for a specific location
+  /// Loads location-specific vehicle and user types
   Future<void> initializeForLocation(Location location) async {
     _currentLocation = location;
     _error = null;
     notifyListeners();
 
-    await loadTypes();
+    await loadTypesForLocation(location.id);
   }
 
-  /// Load user and vehicle types
-  Future<void> loadTypes() async {
+  /// Load user and vehicle types for a specific location
+  /// Uses the new /api/locations/{counter_id} endpoint
+  Future<void> loadTypesForLocation(int locationId) async {
+    debugPrint('CountProvider: Loading types for location $locationId');
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // Try to load from cache first
-      _userTypes = await _databaseService.getCachedUserTypes();
-      _vehicleTypes = await _databaseService.getCachedVehicleTypes();
+      // Fetch location data including enabled types
+      debugPrint('CountProvider: Fetching location data from API...');
+      final locationData = await _apiService.getLocationData(locationId);
 
-      // If cache is empty, load from API
-      if (_userTypes.isEmpty || _vehicleTypes.isEmpty) {
-        await _loadTypesFromApi();
+      // Extract types for this location from locationTypes map
+      final locationTypes =
+          locationData['locationTypes'] as Map<String, dynamic>?;
+      final typesForLocation =
+          locationTypes?[locationId.toString()] as Map<String, dynamic>?;
+
+      if (typesForLocation != null) {
+        debugPrint('CountProvider: Found types for location in response');
+        // Parse vehicle types
+        final vehicleTypesJson = typesForLocation['vehicleTypes'] as List?;
+        if (vehicleTypesJson != null) {
+          _vehicleTypes = vehicleTypesJson
+              .map((json) => VehicleType.fromJson(json as Map<String, dynamic>))
+              .toList();
+          debugPrint(
+            'CountProvider: Loaded ${_vehicleTypes.length} vehicle types',
+          );
+        }
+
+        // Parse user types
+        final userTypesJson = typesForLocation['userTypes'] as List?;
+        if (userTypesJson != null) {
+          _userTypes = userTypesJson
+              .map((json) => UserType.fromJson(json as Map<String, dynamic>))
+              .toList();
+          debugPrint('CountProvider: Loaded ${_userTypes.length} user types');
+        }
+
+        // Cache the types for offline use
+        if (_vehicleTypes.isNotEmpty) {
+          debugPrint(
+            'CountProvider: Caching ${_vehicleTypes.length} vehicle types',
+          );
+          await _databaseService.cacheVehicleTypes(_vehicleTypes);
+        }
+        if (_userTypes.isNotEmpty) {
+          debugPrint('CountProvider: Caching ${_userTypes.length} user types');
+          await _databaseService.cacheUserTypes(_userTypes);
+        }
       } else {
-        // Load from API in background to refresh cache
-        _loadTypesFromApi().catchError((e) {
-          debugPrint('Background types refresh failed: $e');
-        });
+        // Fallback to cached types if location types not found
+        debugPrint(
+          'CountProvider: Location types not found in response, using cache',
+        );
+        _userTypes = await _databaseService.getCachedUserTypes();
+        _vehicleTypes = await _databaseService.getCachedVehicleTypes();
+        debugPrint(
+          'CountProvider: Loaded ${_userTypes.length} user types and ${_vehicleTypes.length} vehicle types from cache',
+        );
+      }
+
+      if (_userTypes.isEmpty || _vehicleTypes.isEmpty) {
+        debugPrint('CountProvider: WARNING - No types available!');
+        _error = 'No counting types available for this location';
       }
     } catch (e) {
-      debugPrint('Error loading types: $e');
+      debugPrint('CountProvider: Error loading types for location: $e');
       _error = 'Failed to load counting types';
+
+      // Try to load from cache as fallback
+      try {
+        debugPrint('CountProvider: Attempting to load types from cache...');
+        _userTypes = await _databaseService.getCachedUserTypes();
+        _vehicleTypes = await _databaseService.getCachedVehicleTypes();
+        debugPrint(
+          'CountProvider: Loaded ${_userTypes.length} user types and ${_vehicleTypes.length} vehicle types from cache',
+        );
+
+        if (_userTypes.isNotEmpty && _vehicleTypes.isNotEmpty) {
+          _error = null; // Clear error if cache worked
+        }
+      } catch (cacheError) {
+        debugPrint('CountProvider: Cache fallback also failed: $cacheError');
+      }
     } finally {
       _isLoading = false;
       notifyListeners();
+      debugPrint('CountProvider: Type loading complete');
     }
-  }
-
-  /// Load types from API and cache them
-  Future<void> _loadTypesFromApi() async {
-    final userTypes = await _apiService.getUserTypes();
-    final vehicleTypes = await _apiService.getVehicleTypes();
-
-    _userTypes = userTypes;
-    _vehicleTypes = vehicleTypes;
-
-    await _databaseService.cacheUserTypes(userTypes);
-    await _databaseService.cacheVehicleTypes(vehicleTypes);
-
-    notifyListeners();
   }
 
   /// Create a count (stores locally, syncs immediately if online)
@@ -100,11 +152,15 @@ class CountProvider with ChangeNotifier {
     String? outputRoad,
   }) async {
     if (_currentLocation == null) {
+      debugPrint('CountProvider: Cannot create count - no location selected');
       _error = 'No location selected';
       notifyListeners();
       return false;
     }
 
+    debugPrint(
+      'CountProvider: Creating count (location=${_currentLocation!.id}, user=$userTypeId, vehicle=$vehicleTypeId, input=$inputRoad, output=$outputRoad)',
+    );
     try {
       final count = Count(
         dt: DateTime.now(),
@@ -117,27 +173,35 @@ class CountProvider with ChangeNotifier {
       );
 
       // Store locally first (for reliability)
+      debugPrint('CountProvider: Storing count locally...');
       final localId = await _databaseService.insertCount(count);
       final countWithId = count.copyWith(id: localId);
+      debugPrint('CountProvider: Count stored locally with ID: $localId');
 
       // Try to sync immediately if online
       try {
+        debugPrint('CountProvider: Attempting immediate sync to server...');
         final serverId = await _apiService.createCount(countWithId);
+        debugPrint('CountProvider: Count synced to server with ID: $serverId');
         // Mark as synced if successful
         await _databaseService.markCountSynced(localId, serverId);
         _lastCount = countWithId.copyWith(id: serverId, synced: true);
+        debugPrint('CountProvider: Count marked as synced');
       } catch (e) {
         // If sync fails, keep as unsynced for background sync
-        debugPrint('Immediate sync failed, will retry later: $e');
+        debugPrint(
+          'CountProvider: Immediate sync failed, will retry later: $e',
+        );
         _lastCount = countWithId;
       }
 
       _error = null;
       notifyListeners();
 
+      debugPrint('CountProvider: Count creation completed successfully');
       return true;
     } catch (e) {
-      debugPrint('Error creating count: $e');
+      debugPrint('CountProvider: Error creating count: $e');
       _error = 'Failed to save count';
       notifyListeners();
       return false;
@@ -147,30 +211,39 @@ class CountProvider with ChangeNotifier {
   /// Undo last count
   Future<bool> undoLastCount() async {
     if (_lastCount == null || _lastCount!.id == null) {
+      debugPrint('CountProvider: Cannot undo - no last count available');
       return false;
     }
 
+    debugPrint(
+      'CountProvider: Undoing last count (ID: ${_lastCount!.id}, synced: ${_lastCount!.synced})',
+    );
     try {
       // If already synced, try to delete from server
       if (_lastCount!.synced && _lastCount!.id != null) {
         try {
+          debugPrint('CountProvider: Deleting count from server...');
           await _apiService.deleteCount(_lastCount!.id!);
+          debugPrint('CountProvider: Count deleted from server');
         } catch (e) {
-          debugPrint('Failed to delete count from server: $e');
+          debugPrint('CountProvider: Failed to delete count from server: $e');
           // Continue with local deletion anyway
         }
       }
 
       // Delete from local database
+      debugPrint('CountProvider: Deleting count from local database...');
       await _databaseService.deleteCount(_lastCount!.id!);
+      debugPrint('CountProvider: Count deleted from local database');
 
       _lastCount = null;
       _error = null;
       notifyListeners();
 
+      debugPrint('CountProvider: Undo completed successfully');
       return true;
     } catch (e) {
-      debugPrint('Error undoing count: $e');
+      debugPrint('CountProvider: Error undoing count: $e');
       _error = 'Failed to undo count';
       notifyListeners();
       return false;

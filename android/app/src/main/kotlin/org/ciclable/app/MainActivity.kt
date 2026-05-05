@@ -1,4 +1,4 @@
-package com.example.ciclable_app
+package org.ciclable.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -34,8 +34,14 @@ class LocationProvider with ChangeNotifier {
 
   /// Load locations (tries API first, falls back to cache)
   Future<void> loadLocations({bool forceRefresh = false}) async {
-    if (_isLoading) return;
+    if (_isLoading) {
+      debugPrint('LocationProvider: Already loading, skipping...');
+      return;
+    }
 
+    debugPrint(
+      'LocationProvider: Loading locations (forceRefresh: $forceRefresh)',
+    );
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -43,49 +49,73 @@ class LocationProvider with ChangeNotifier {
     try {
       // Try to load from cache first for fast initial load
       if (!forceRefresh && _locations.isEmpty) {
+        debugPrint('LocationProvider: Attempting to load from cache...');
         _locations = await _databaseService.getCachedLocations();
         if (_locations.isNotEmpty) {
+          debugPrint(
+            'LocationProvider: Loaded ${_locations.length} locations from cache',
+          );
           _isLoading = false;
           notifyListeners();
           // Continue loading from API in background
+          debugPrint('LocationProvider: Starting background API refresh...');
           _loadFromApi();
           return;
         }
+        debugPrint('LocationProvider: Cache is empty, loading from API...');
       }
 
       // Load from API
       await _loadFromApi();
     } catch (e) {
-      debugPrint('Error loading locations: $e');
+      debugPrint('LocationProvider: Error loading locations: $e');
       _error = 'Failed to load locations';
 
       // Try to load from cache as fallback
       try {
+        debugPrint('LocationProvider: Attempting fallback to cache...');
         _locations = await _databaseService.getCachedLocations();
         if (_locations.isNotEmpty) {
+          debugPrint(
+            'LocationProvider: Loaded ${_locations.length} locations from cache as fallback',
+          );
           _error = 'Showing cached data (offline)';
+        } else {
+          debugPrint('LocationProvider: Cache is also empty');
         }
       } catch (cacheError) {
-        debugPrint('Error loading cached locations: $cacheError');
+        debugPrint(
+          'LocationProvider: Error loading cached locations: $cacheError',
+        );
       }
     } finally {
       _isLoading = false;
       notifyListeners();
+      debugPrint(
+        'LocationProvider: Load complete (${_locations.length} locations)',
+      );
     }
   }
 
   /// Load locations from API and cache them
   Future<void> _loadFromApi() async {
     try {
+      debugPrint('LocationProvider: Fetching locations from API...');
       final apiLocations = await _apiService.getLocations();
       _locations = apiLocations;
+      debugPrint(
+        'LocationProvider: API returned ${apiLocations.length} locations',
+      );
 
       // Cache for offline use
+      debugPrint('LocationProvider: Caching locations...');
       await _databaseService.cacheLocations(apiLocations);
+      debugPrint('LocationProvider: Locations cached successfully');
 
       _error = null;
       notifyListeners();
     } catch (e) {
+      debugPrint('LocationProvider: API fetch failed: $e');
       // Let the caller handle the error
       rethrow;
     }

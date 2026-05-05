@@ -161,7 +161,8 @@ class _CountingScreenState extends State<CountingScreen> {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () => countProvider.loadTypes(),
+                    onPressed: () =>
+                        countProvider.loadTypesForLocation(widget.location.id),
                     child: const Text('Retry'),
                   ),
                 ],

@@ -59,9 +59,18 @@ Key models from `schema.prisma`:
 - Footer: Sync status indicator, back button
 
 **Table Structure**:
-- **Rows**: VehicleType (from database, filtered by location/association defaults)
-- **Columns**: UserType (from database, filtered by location/association defaults)
+- **Rows**: VehicleType (from location-specific API endpoint)
+- **Columns**: UserType (from location-specific API endpoint)
 - **Cells**: Tappable buttons showing current count for that combination
+
+**Data Loading**:
+- Uses `GET /api/locations/{counter_id}` endpoint to fetch:
+  - Location details
+  - Location-specific enabled vehicle and user types
+  - Current counter totals
+  - Next campaign information
+- Only displays types enabled for the specific location (via association or location defaults)
+- Falls back to cached types if offline
 
 **Behavior**:
 - **Non-directed mode** (`comptage_directionnel = false`):
@@ -320,6 +329,21 @@ The backend is a SvelteKit application with the following API endpoints:
   - Returns: array ordered by `is_default DESC, sort_order ASC, name ASC`
 
 ### Location Management (Admin)
+- **GET** `/api/locations/[counter_id]` - Fetch location details with counters and types
+  - Returns: 
+    ```json
+    {
+      "parentLocation": Location object with association and campaigns,
+      "childMarkers": Location[] - array of child locations,
+      "counters": { [locationId]: CounterData } - current counts for all locations,
+      "locationTypes": { [locationId]: { vehicleTypes, userTypes } } - enabled types per location,
+      "nextCampaign": Campaign | null - upcoming campaign for the association
+    }
+    ```
+  - Use this endpoint to get all data needed for the counting screen
+  - Includes both parent location and any child markers
+  - Counter data includes current totals grouped by vehicle/user types
+
 - **POST** `/api/admin/locations` - Create multiple locations
   - Body: array of location objects
   - Returns: array of created locations
@@ -341,10 +365,12 @@ The backend is a SvelteKit application with the following API endpoints:
 
 ### Important Notes for Mobile App
 
-1. **No dedicated GET locations endpoint**: The backend currently loads locations via SvelteKit's server load functions, not REST API. You'll need to either:
-   - Add a `GET /api/admin/locations` endpoint to the backend
-   - Fetch from the root page's data endpoint
-   - Have the mobile app query associations and their nested locations
+1. **Location data endpoint**: Use `GET /api/locations/[counter_id]` to fetch all data needed for a counting screen, including:
+   - Location details with association and campaigns
+   - Child markers (if any)
+   - Current counter totals for all locations
+   - Enabled vehicle and user types per location
+   - Next upcoming campaign
 
 2. **Field naming**: The backend still uses deprecated `user_type` and `vehicle_type` string fields in some endpoints. Mobile app should use `user_type_id` and `vehicle_type_id` (integer foreign keys) for consistency with the schema.
 

@@ -7,5 +7,20 @@
 			"path": "../ciclable"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"/^flutter run -d emulator-5554$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^adb -s emulator-5554 logcat -d \\| grep -A 20 \"FATAL EXCEPTION\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^cd /home/bcoste/workspace/ciclable_app && flutter run -d emulator-5554$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		}
+	}
 }

@@ -36,7 +36,7 @@ A Flutter mobile application for counting cyclists and other road users at speci
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/ciclable_app.git
+   git clone https://github.com/wizmer/ciclable_app.git
    cd ciclable_app
    ```
 

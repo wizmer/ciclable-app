@@ -15,6 +15,13 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Load Google Maps API keys from local.properties
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+
 android {
     namespace = "org.ciclable.app"
     compileSdk = flutter.compileSdkVersion
@@ -36,6 +43,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // Default Google Maps API key (debug) - will be overridden by build types
+        manifestPlaceholders["googleMapsApiKey"] = localProperties.getProperty("google.maps.key.debug") 
+            ?: "AIzaSyAYm01FS25gOr_GWqxKIklWwJ2ZZt4PTc0" // fallback to existing key
     }
 
     signingConfigs {
@@ -50,6 +61,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Use debug Google Maps API key
+            manifestPlaceholders["googleMapsApiKey"] = localProperties.getProperty("google.maps.key.debug")
+                ?: "AIzaSyAYm01FS25gOr_GWqxKIklWwJ2ZZt4PTc0" // fallback
+        }
+        
         release {
             // Use release signing if key.properties exists, otherwise use debug
             signingConfig = if (keystorePropertiesFile.exists()) {
@@ -57,6 +74,11 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            
+            // Use release Google Maps API key
+            manifestPlaceholders["googleMapsApiKey"] = localProperties.getProperty("google.maps.key.release")
+                ?: localProperties.getProperty("google.maps.key.debug") // fallback to debug key
+                ?: "AIzaSyAYm01FS25gOr_GWqxKIklWwJ2ZZt4PTc0" // final fallback
             
             // Enable code shrinking and obfuscation for smaller APK
             isMinifyEnabled = true

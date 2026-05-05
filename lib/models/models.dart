@@ -2,6 +2,7 @@ library;
 
 /// Export all models for easy importing
 /// Usage: import 'package:ciclable_app/models/models.dart';
+export 'association.dart';
 export 'count.dart';
 export 'location.dart';
 export 'user_type.dart';
